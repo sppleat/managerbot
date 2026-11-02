@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<title>Студия</title>
+<style>
+:root{--bg:var(--tg-theme-bg-color,#fff);--tx:var(--tg-theme-text-color,#111);--hint:var(--tg-theme-hint-color,#888);--sec:var(--tg-theme-secondary-bg-color,#f2f2f5);--btn:var(--tg-theme-button-color,#2481cc);--btx:var(--tg-theme-button-text-color,#fff);--g:#34c759;--y:#ffcc00;--r:#ff3b30}
+*{box-sizing:border-box;margin:0}
+body{font:16px system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:12px;max-width:480px;margin:auto}
+#now{background:var(--sec);border-radius:12px;padding:12px;margin-bottom:12px;font-size:15px}
+.nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.nav button{background:none;border:0;color:var(--btn);font-size:24px;padding:4px 14px}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;text-align:center}
+.wd{color:var(--hint);font-size:12px}
+.d{aspect-ratio:1;border-radius:10px;border:0;font-size:15px;font-weight:600;color:#fff}
+.d.g{background:var(--g)}.d.y{background:var(--y);color:#222}.d.r{background:var(--r)}
+.d.off{background:var(--sec);color:var(--hint);font-weight:400}
+.d.sel{outline:3px solid var(--btn);outline-offset:1px}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--hint);margin:10px 0 16px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px}
+#slots{margin-top:8px;display:grid;gap:8px}
+.s{display:flex;justify-content:space-between;padding:12px;border-radius:10px;background:var(--sec);border:2px solid transparent;color:var(--tx);font-size:15px}
+.s.free{border-color:var(--g)}.s.mine{background:var(--btn);color:var(--btx)}
+.s.busy,.s.blocked,.s.past{opacity:.5}
+</style></head><body>
+<div id="now">…</div>
+<div class="nav"><button id="prev">‹</button><b id="title"></b><button id="next">›</button></div>
+<div class="grid" id="wd"></div>
+<div class="grid" id="cal"></div>
+<div class="legend"><span><i style="background:var(--g)"></i>свободно</span><span><i style="background:var(--y)"></i>мало мест</span><span><i style="background:var(--r)"></i>занято</span></div>
+<h3 id="dayTitle"></h3>
+<div id="slots"></div>
+<script>
+const tg=Telegram.WebApp;tg.ready();tg.expand();
+if(!tg.initData)document.body.innerHTML='<p>Откройте приложение через Telegram-бота.</p>';
+const $=id=>document.getElementById(id),p=n=>String(n).padStart(2,'0');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const api=async(u,o={})=>{const r=await fetch(u,{headers:{'X-Init-Data':tg.initData,'Content-Type':'application/json'},...o});const j=await r.json();if(!r.ok)throw new Error(j.error||'Ошибка');return j};
+const ask=m=>new Promise(r=>tg.showConfirm(m,r));
+const MN=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const iso=d=>`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+let cur=new Date();cur.setDate(1);let sel=iso(new Date());
+$('wd').innerHTML=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(x=>`<div class=wd>${x}</div>`).join('');
+
+async function loadNow(){
+  const n=await api('/api/now');
+  $('now').innerHTML={closed:'🌙 Студия сейчас закрыта',free:'🟢 Студия свободна',blocked:'🔒 Закрыто администратором',
+    busy:`🎙 Сейчас в студии: <b>${esc(n.name||'клиент')}</b> (${n.slot})`}[n.state];
+}
+async function loadMonth(){
+  const j=await api('/api/month?month='+iso(cur).slice(0,7));
+  $('title').textContent=MN[cur.getMonth()]+' '+cur.getFullYear();
+  let h='<div></div>'.repeat((cur.getDay()+6)%7);
+  for(const k of Object.keys(j.days).sort()){
+    const v=j.days[k],c=!v.open?'off':v.free==0?'r':v.free<j.total/2?'y':'g';
+    h+=`<button class="d ${c} ${k===sel?'sel':''}" data-d="${k}" ${v.open?'':'disabled'}>${+k.slice(8)}</button>`;
+  }
+  $('cal').innerHTML=h;
+}
+async function loadDay(){
+  const j=await api('/api/day?date='+sel),[y,m,d]=sel.split('-');
+  $('dayTitle').textContent=`${d}.${m}.${y}`;
+  $('slots').innerHTML=j.slots.map(s=>{
+    const lab={free:'Свободно',mine:'Ваша запись · отменить',busy:s.name||'Занято',blocked:'Закрыто',past:'Прошло'}[s.status];
+    return `<button class="s ${s.status}" data-st="${s.status}" data-h="${s.hour}" data-id="${s.id||''}"><span>${p(s.hour)}:00–${p(s.hour+1)}:00</span><span>${esc(lab)}</span></button>`;
+  }).join('');
+}
+const refresh=()=>Promise.all([loadNow(),loadMonth(),loadDay()]).catch(e=>tg.showAlert(e.message));
+
+$('cal').onclick=e=>{const b=e.target.closest('.d');if(!b||b.disabled)return;sel=b.dataset.d;
+  document.querySelectorAll('.d').forEach(x=>x.classList.toggle('sel',x.dataset.d===sel));loadDay()};
+$('prev').onclick=()=>{cur.setMonth(cur.getMonth()-1);loadMonth()};
+$('next').onclick=()=>{cur.setMonth(cur.getMonth()+1);loadMonth()};
+$('slots').onclick=async e=>{
+  const b=e.target.closest('.s');if(!b)return;const st=b.dataset.st,h=+b.dataset.h;
+  try{
+    if(st==='free'){
+      if(!await ask(`Записаться на ${sel}, ${p(h)}:00–${p(h+1)}:00?`))return;
+      await api('/api/book',{method:'POST',body:JSON.stringify({date:sel,hour:h})});
+      tg.HapticFeedback.notificationOccurred('success');
+    }else if(st==='mine'){
+      if(!await ask('Отменить эту запись?'))return;
+      await api('/api/cancel',{method:'POST',body:JSON.stringify({id:+b.dataset.id})});
+    }else return;
+  }catch(err){tg.showAlert(err.message)}
+  refresh();
+};
+refresh();setInterval(refresh,60000);
+</script></body></html>
